@@ -1,0 +1,129 @@
+---
+title: "P8105 HW6"
+author: "Courtney Diamond"
+date: "2023-11-28"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+## Problem 1
+
+```{r}
+homicide_data = 
+  read_csv("data/homicide-data.csv") |> 
+  mutate(city_state = str_c(as.character(city), as.character(state), sep = ", ")) |> 
+  filter(!city_state %in% c('Tulsa, AL', 'Dallas, TX', 'Phoenix, AZ', 'Kansas City, MO')) |> 
+  filter(victim_race %in% c('White', 'Black')) |> 
+  mutate(victim_age = as.numeric(victim_age)) |> 
+  mutate(status = as.numeric(disposition == 'Closed by arrest'))
+
+homicide_data
+```
+
+First let's narrow down to Baltimore, MD
+```{r}
+baltimore_homicide_df = 
+  homicide_data |> 
+  filter(city_state == 'Baltimore, MD')
+
+baltimore_homicide_df
+```
+
+Now let's run the glm! 
+
+```{r}
+baltimore_fit = 
+  baltimore_homicide_df |> 
+  glm(status ~ victim_age + victim_race + victim_sex, data = _, family = binomial()) |> 
+  broom::tidy() |> 
+  mutate(OR = exp(estimate),
+         OR_CI_upper = exp(estimate + 1.96 * std.error),
+         OR_CI_lower = exp(estimate - 1.96 * std.error)) |> 
+  select(term, OR, OR_CI_upper, OR_CI_lower, p.value) |> 
+  filter(term == 'victim_sexMale') |> 
+  knitr::kable()
+
+  
+baltimore_fit
+```
+
+Keeping all other variables fixed, the odds of a homicide being solved for male victims are lower than for female victims. 
+
+Now, let's transform this to a pipeline to do the same sort of calculation for all the cities in the original dataset. 
+
+```{r}
+male_odds_solved =   
+  homicide_data |> 
+  nest(data = -city_state) |> 
+  mutate(
+    models = map(data, \(df) glm(status ~ victim_age + victim_race + victim_sex, data = df, family = binomial())),
+    ) |> 
+  mutate(
+    tidy_models = map(models, broom::tidy)
+    ) |> 
+  unnest(tidy_models) |> 
+  mutate(
+    OR = exp(estimate),
+    upper_OR_CI = exp(estimate + 1.96 * std.error),
+    lower_OR_CI = exp(estimate - 1.96 * std.error)
+  ) |> 
+  select(city_state, term, OR, upper_OR_CI, lower_OR_CI, p.value) |> 
+  filter(term == 'victim_sexMale')
+
+male_odds_solved |> 
+  knitr::kable(digits = 3)
+  
+```
+
+
+```{r}
+male_odds_solved |> 
+  mutate(city_state = fct_reorder(city_state, OR)) |> 
+  ggplot(aes(x = city_state, y = OR)) + 
+  geom_point() + 
+  geom_errorbar(aes(ymin = lower_OR_CI, ymax = upper_OR_CI)) + 
+    theme(axis.text.x = element_text(angle = 60, hjust = 1))
+```
+
+Most of the cities plotted have ORs less than 1 after adjusting for race and age, indicating smaller odds of a male victim's homicide being solved compared to females'. Nashville, TN, Fresno, CA, Stockton, CA, and Albuquerque, NM have ORs greater than 1. 22 of the cities have confidence intervals that do not include 1, indicating a statistically significant result. 
+
+
+## Problem 2
+
+
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2022-01-01",
+    date_max = "2022-12-31") |>
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) |>
+  select(name, id, everything())
+```
+  
