@@ -9,7 +9,7 @@ output: github_document
 
 library(tidyverse)
 
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
 
 knitr::opts_chunk$set(
   fig.width = 6,
@@ -29,6 +29,8 @@ scale_fill_discrete = scale_fill_viridis_d
 ```
 
 ## Problem 1
+
+Time to load some data. 
 
 ```{r}
 homicide_data = 
@@ -153,10 +155,11 @@ boot_straps |>
   pull(strap_sample) |> 
   nth(1) |> 
   arrange(date) |> 
+  head(n = 25) |> 
   knitr::kable()
 ```
 
-Cool, for the first bootstrapped sample, we can see that there are many dates which were pulled more than once (e.g. January 2, January 3, January 7, etc. etc.)
+Cool, for the first bootstrapped sample, even just in the first few lines, we can see that there are many dates which were pulled more than once (e.g. January 2, January 3, etc. etc.)
 
 Now let's get estimates for these two quantities for each of our bootstrap samples. 
 
@@ -191,23 +194,36 @@ compact_boot_results
   
 ```
 
-Hooray! Let's plot them. It's important to note that, because many of the beta_2 values calculated are negative, the log(beta_1 * beta_2) value is going to be NaN for these samples, and thus will be dropped when plotting the distribution.
+Hooray! Let's plot them. It's important to note that, because many of the $\hat{\beta_2}$ values calculated are negative, the $log(\hat{\beta_1} * \hat{\beta_2})$ value is going to be `NaN` for these samples, and thus will be dropped when plotting the distribution.
 
 ```{r}
 compact_boot_results |> 
   ggplot(aes(x = r.squared)) + 
   geom_density()
+```
 
+The distribution of the $\hat{r^2}$ values is negatively skewed (i.e. the mean is less than the median value), with the mode existing around 0.92 (ish, I am eyeballing it.)
+
+```{r}
 compact_boot_results |> 
   ggplot(aes(x = log_b1_b2)) +
   geom_density()
 ```
 
-[Looking at these distributions...]
-
-[ID the quantiles]
+The distribution of the $log(\hat{\beta_1} * \hat{\beta_2})$ values is also negatively skewed (i.e. the mean is less than the median value), with the mode existing around -5.5 (ish, I am eyeballing it.)
 
 ```{r}
-
+compact_boot_results |> 
+  summarize(
+    rsq_ci_lower = quantile(r.squared, 0.025),
+    rsq_ci_upper = quantile(r.squared, 0.975),
+    log_beta_ci_lower = quantile(log_b1_b2, 0.025, na.rm = TRUE),
+    log_beta_ci_upper = quantile(log_b1_b2, 0.975, na.rm = TRUE)
+  ) |> 
+  knitr::kable(digits = 3)
 ```
+
+The estimate of $\hat{r^2}$ is `r compact_boot_results |> summarize(mean(r.squared))`, 95% CI [`r compact_boot_results |>  summarize(quantile(r.squared, 0.025))`, `r compact_boot_results |>  summarize(quantile(r.squared, 0.975))`]. The estimate of $log(\hat{\beta_1} * \hat{\beta_2})$ is `r compact_boot_results |> summarize(mean(log_b1_b2, na.rm = TRUE))`, 95% CI [`r compact_boot_results |>  summarize(quantile(log_b1_b2, 0.025, na.rm = TRUE))`, `r compact_boot_results |>  summarize(quantile(log_b1_b2, 0.975, na.rm = TRUE))`]. As above, it's important to note that because the value of $log(\hat{\beta_1} * \hat{\beta_2})$ is the result of trying to take the logarithm of a negative number, these are `NaN` and are not included when calculating the estimate and confidence interval. 
+
+## Problem 3
 
