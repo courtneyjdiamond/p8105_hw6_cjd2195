@@ -8,6 +8,8 @@ output: github_document
 ```{r setup, include=FALSE}
 
 library(tidyverse)
+library(mgcv)
+library(modelr)
 
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
 
@@ -230,7 +232,6 @@ The estimate of $\hat{r^2}$ is `r compact_boot_results |> summarize(mean(r.squar
 Let's read in some new data!
 
 ```{r}
-
 birthweight_df = 
   read_csv("data/birthweight.csv") |> 
   mutate(
@@ -264,15 +265,76 @@ birthweight_df =
     4 ~ "puerto rican",
     8 ~ "other",
   ),
-  mrace = as.factor(mrace), 
-  bwt_lbs = bwt* 0.00225,
-  mheight_cm = mheight * 2.54,
-  fincome_full = fincome * 100)
+  mrace = as.factor(mrace))
 
 
 birthweight_df |> 
   summarise(across(everything(), ~ sum(is.na(.x))))
+```
 
-birthweight_df
+
+```{r}
+birthweight_df |> 
+  summarize(sga = n_distinct(pnumsga),
+            lbw = n_distinct(pnumlbw))
+
+bw_fit = lm(bwt ~ babysex + bhead + blength + delwt + gaweeks + mheight + parity + smoken + wtgain, data = birthweight_df)
+
+bw_fit |> 
+  broom::tidy() |> 
+  mutate(sig = case_when(p.value <= 0.05 ~ TRUE))
+
+bw_df_test =
+  birthweight_df |> 
+  add_predictions(bw_fit) |> 
+  add_residuals(bw_fit)
+
+bw_df_test |> 
+  ggplot(aes(x = pred, y = resid)) + 
+  geom_point(alpha = 0.3)
+
+bw_df_test |> 
+  ggplot(aes(sample = resid)) +
+  stat_qq() + 
+  stat_qq_line()
+
+```
+
+```{r}
+bw_fit_ex1 = lm(bwt ~ blength + gaweeks, data = birthweight_df)
+bw_fit_ex2 = lm(bwt ~ babysex + bhead + blength + babysex*bhead + babysex*blength + bhead*blength + babysex*bhead*blength, data = birthweight_df)
+
+bw_fit_ex1 |> 
+  broom::tidy()
+
+bw_fit_ex2 |> 
+  broom::tidy()
+```
+
+```{r}
+bw_cv_df = 
+  modelr::crossv_mc(birthweight_df, 100) |> 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble))
+
+bw_cv_df |> 
+  mutate(
+    my_model = map(train, \(df) lm(bwt ~ babysex + bhead + blength + delwt + gaweeks + mheight + parity + smoken + wtgain, data = birthweight_df)), 
+    bw_fit_ex1 = map(train, \(df) lm(bwt ~ blength + gaweeks, data = birthweight_df)),
+    bw_fit_ex2 = map(train, \(df) lm(bwt ~ babysex + bhead + blength + babysex*bhead + babysex*blength + bhead*blength + babysex*bhead*blength, data = birthweight_df))) |> 
+  mutate(
+    rmse_my_model = map2_dbl(my_model, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse_bw_fit_ex1 = map2_dbl(bw_fit_ex1, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse_bw_fit_ex2 = map2_dbl(bw_fit_ex2, test, \(mod, df) rmse(model = mod, data = df))
+  ) |> 
+  select(starts_with("rmse")) |> 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") |> 
+  mutate(model = fct_inorder(model)) |> 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
 ```
 
